@@ -3,11 +3,15 @@ package ar.edu.itba.cleancode;
 
 import java.time.Duration;
 import java.util.logging.Logger;
+import java.util.concurrent.Executors;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowType;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 
 
@@ -23,6 +27,13 @@ public class MainVerticle extends AbstractVerticle {
 
         // Create a Vert.x web router
         Router router = Router.router(vertx);
+
+        // Configure CircuitBreaker with a timeout of  seconds
+        CircuitBreakerConfig circuitBreakerConfig = CircuitBreakerConfig.custom()
+                .failureRateThreshold(50) // Open circuit if failure rate is above 50%
+                .waitDurationInOpenState(Duration.ofSeconds(5)) // Wait for 5 seconds in open state
+                .slidingWindow(5, 3, SlidingWindowType.COUNT_BASED) // Buffer size in closed state
+                .build();
         
         // Create the retry configuration
         RetryConfig retryConfig = RetryConfig.custom()
@@ -47,7 +58,6 @@ public class MainVerticle extends AbstractVerticle {
             }
         });
 
-
         // Define a simple "Hello World" endpoint
         router.get("/hello").handler(ctx -> {
             retry.executeRunnable(() -> {
@@ -60,6 +70,13 @@ public class MainVerticle extends AbstractVerticle {
                 }).run();
             });
         });
+
+        // Schedule a task to reset the circuit breaker state periodically
+        Vertx.currentContext().owner().setPeriodic(10000, timerId -> {
+            circuitBreaker.reset(); // Reset the circuit breaker state every 10 seconds
+            System.out.println("Circuit breaker state reset");
+        });
+
     }
 
     private void performOperation() {
